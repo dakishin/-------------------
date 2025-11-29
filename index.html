@@ -1,0 +1,1715 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Третий пехотный полк</title>
+  <style>
+    body {
+      font-family: "Trebuchet MS", sans-serif;
+      background: #0e0d16;
+      color: #f5f2d0;
+      margin: 0;
+      padding: 0;    
+      overflow: hidden;
+    }
+    .container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      margin: 0;
+      padding: 0;
+    }
+    .game-column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    .info-column {
+      width: 250px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      box-sizing: border-box;
+      overflow-y: auto;
+    }
+    h1 { 
+      margin: 0 0 10px 0; 
+      text-align: left;
+      font-size: 24px;
+    }
+    #level {
+      font-size: 18px;
+      margin: 0;
+      text-align: left;
+      color: #dfbf6c;
+    }
+    #lives {
+      font-size: 20px;
+      margin: 0;
+      text-align: left;
+    }
+    #game-wrapper {
+      width: 100%;
+      height: 100%;
+      padding: 12px;
+      border: 3px solid #6f5b3e;
+      border-radius: 12px;
+      background: #1f1b2f;
+      box-shadow: 0 0 20px rgba(0,0,0,0.6);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-sizing: border-box;
+    }
+    canvas {
+      background: #100c1b;
+      border: 2px solid #b9a06b;
+      border-radius: 8px;
+      image-rendering: pixelated;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    button {
+      margin: 0;
+      padding: 10px 24px;
+      font-size: 18px;
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      background: #dfbf6c;
+      color: #2b1f0f;
+      font-weight: bold;
+      width: 100%;
+    }
+    button:hover { background: #f9d885; }
+    #game-over {
+      font-size: 20px;
+      color: #ffb3b3;
+      min-height: 24px;
+      margin: 0;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="game-column">
+      <div id="game-wrapper">
+        <canvas id="game" width="1440" height="900"></canvas>
+      </div>
+    </div>
+    <div class="info-column">
+      <h1>Третий пехотный полк</h1>
+      <div id="level">Уровень: 1 | Убито: 0/10</div>
+      <div id="lives">Жизни: ♥♥♥</div>
+      <div id="game-over"></div>
+      <button id="start-btn">Старт</button>
+      <button id="pause-btn" style="display: none;">Пауза</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const images = {
+      player: null,
+      enemyMelee: null,
+      enemyShooter: null
+    };
+
+    const playerImage = new Image();
+    playerImage.src = 'assets/player.png';
+    playerImage.onload = () => {
+      images.player = playerImage;
+      console.log('[assets] player.png loaded');
+    };
+    playerImage.onerror = (e) => {
+      console.warn('[assets] failed to load player.png', e);
+    };
+
+    const enemyMeleeImage = new Image();
+    enemyMeleeImage.src = 'assets/enemy_melee.png';
+    enemyMeleeImage.onload = () => {
+      images.enemyMelee = enemyMeleeImage;
+      console.log('[assets] enemy_melee.png loaded');
+    };
+    enemyMeleeImage.onerror = (e) => {
+      console.warn('[assets] failed to load enemy_melee.png', e);
+    };
+
+    const enemyShooterImage = new Image();
+    enemyShooterImage.src = 'assets/enemy_shooter.png';
+    enemyShooterImage.onload = () => {
+      images.enemyShooter = enemyShooterImage;
+      console.log('[assets] enemy_shooter.png loaded');
+    };
+    enemyShooterImage.onerror = (e) => {
+      console.warn('[assets] failed to load enemy_shooter.png', e);
+    };
+
+    const livesDisplay = document.getElementById('lives');
+    const levelDisplay = document.getElementById('level');
+    const startBtn = document.getElementById('start-btn');
+    const pauseBtn = document.getElementById('pause-btn');
+    const gameOverText = document.getElementById('game-over');
+    const gameWrapper = document.getElementById('game-wrapper');
+
+    // Базовые размеры (пропорции 16:10, увеличенная карта 24x15 клеток, клетки увеличены в 1.5 раза)
+    const BASE_WIDTH = 1440;  // 24 клетки * 60
+    const BASE_HEIGHT = 900;  // 15 клеток * 60
+    const ASPECT_RATIO = BASE_WIDTH / BASE_HEIGHT; // 1.6
+
+    // Функция для изменения размера canvas
+    function resizeCanvas() {
+      // Внутренний размер canvas всегда фиксированный для логики игры
+      canvas.width = BASE_WIDTH;  // 1440
+      canvas.height = BASE_HEIGHT; // 900
+      
+      // Получаем размеры game-wrapper (минус padding и border)
+      const wrapperRect = gameWrapper.getBoundingClientRect();
+      const availableWidth = wrapperRect.width - 24; // padding + border
+      const availableHeight = wrapperRect.height - 24; // padding + border
+      
+      // Вычисляем визуальный размер с сохранением пропорций
+      // Карта должна занимать всю доступную высоту
+      let displayHeight = availableHeight;
+      let displayWidth = displayHeight * ASPECT_RATIO;
+      
+      // Если ширина не помещается, уменьшаем по ширине
+      if (displayWidth > availableWidth) {
+        displayWidth = availableWidth;
+        displayHeight = displayWidth / ASPECT_RATIO;
+      }
+      
+      // Устанавливаем визуальный размер через CSS (масштабирование)
+      canvas.style.width = Math.floor(displayWidth) + 'px';
+      canvas.style.height = Math.floor(displayHeight) + 'px';
+    }
+
+    // Вызываем при загрузке и изменении размера окна
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    const tileSize = 60;  // Увеличено в 1.5 раза (было 40)
+    const halfTile = tileSize / 2;
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      targetX: canvas.width / 2,
+      targetY: canvas.height / 2,
+      tileX: 0,
+      tileY: 0,
+      size: tileSize,
+      speed: 6,
+      dirX: 1,
+      dirY: 0
+    };
+
+    let arrows = [];
+    let enemies = [];
+    let keys = {};
+    let score = 0;
+    let lives = 3;
+    let playing = false;
+    let paused = false;
+    let spawnTimer = 0;
+    let animationId = null;
+    let currentLevel = 1;
+    let killsInLevel = 0;
+    const KILLS_NEEDED_PER_LEVEL = 10;
+    const MAX_LEVEL = 30;
+    let playerDeathAnimation = null; // Анимация смерти персонажа
+    let levelTransitionActive = false; // Флаг перехода между уровнями
+    let enemySpawnCount = 0; // Счетчик появившихся врагов
+    
+    // Описание подходов для каждой карты
+    const mapApproaches = [
+      'Крест 1', 'Диагональ 1', 'Кольца 1', 'Зигзаг 1', 'Пирамида 1', 'Волны 1',
+      'Крест 2', 'Диагональ 2', 'Кольца 2', 'Зигзаг 2', 'Пирамида 2', 'Волны 2',
+      'Крест 3', 'Диагональ 3', 'Кольца 3', 'Зигзаг 3', 'Пирамида 3', 'Волны 3',
+      'Крест 4', 'Диагональ 4', 'Кольца 4', 'Зигзаг 4', 'Пирамида 4', 'Волны 4',
+      'Крест 5', 'Диагональ 5', 'Кольца 5', 'Зигзаг 5', 'Пирамида 5', 'Волны 5'
+    ];
+
+    function resetGame() {
+      currentLevel = 1;
+      killsInLevel = 0;
+      paused = false;
+      updateMapForLevel(1);
+      const approxTx = Math.floor(mapRows[0].length / 2);
+      const approxTy = Math.floor(mapRows.length / 2);
+      const centerTile = findNearestWalkableTile(approxTx, approxTy);
+      setEntityToTile(player, centerTile.tx, centerTile.ty);
+      player.dirX = 1;
+      player.dirY = 0;
+      arrows = [];
+      enemies = [];
+      score = 0;
+      lives = 3;
+      spawnTimer = 0;
+      enemySpawnCount = 0;
+      playerDeathAnimation = null;
+      levelTransitionActive = false;
+      pauseBtn.textContent = 'Пауза';
+      pauseBtn.style.display = 'none';
+      startBtn.style.display = 'block';
+      updateLives();
+      updateLevelDisplay();
+      gameOverText.textContent = '';
+    }
+
+    function updateLevelDisplay() {
+      const approach = mapApproaches[currentLevel - 1] || '';
+      levelDisplay.textContent = `Уровень: ${currentLevel} | Убито: ${killsInLevel}/${KILLS_NEEDED_PER_LEVEL}`;
+      if (approach) {
+        levelDisplay.textContent += ` | ${approach}`;
+      }
+      // Добавляем подсказку о визуальном различии
+      levelDisplay.title = approach || '';
+    }
+
+    function nextLevel() {
+      if (currentLevel >= MAX_LEVEL) {
+        playing = false;
+        paused = false;
+        pauseBtn.style.display = 'none';
+        startBtn.style.display = 'block';
+        enemies = [];
+        arrows = [];
+        playVictoryMusic();
+        gameOverText.textContent = '🎉 Победа! Все 30 уровней пройдены!';
+        return;
+      }
+      playVictoryMusic();
+      levelTransitionActive = true;
+      
+      // Восстанавливаем жизни при переходе на новый уровень
+      lives = 3;
+      updateLives();
+      
+      // Анимация перехода между уровнями
+      setTimeout(() => {
+        levelTransitionActive = false;
+        currentLevel++;
+        killsInLevel = 0;
+        enemies = [];
+        arrows = [];
+        enemySpawnCount = 0; // Сбрасываем счетчик врагов при переходе уровня
+        playerDeathAnimation = null; // Сбрасываем анимацию смерти
+        updateMapForLevel(currentLevel);
+        const approxTx = Math.floor(mapRows[0].length / 2);
+        const approxTy = Math.floor(mapRows.length / 2);
+        const centerTile = findNearestWalkableTile(approxTx, approxTy);
+        setEntityToTile(player, centerTile.tx, centerTile.ty);
+        player.dirX = 1;
+        player.dirY = 0;
+        updateLevelDisplay();
+        gameOverText.textContent = `Уровень ${currentLevel}! Убей ${KILLS_NEEDED_PER_LEVEL} врагов. Жизни восстановлены!`;
+        setTimeout(() => {
+          gameOverText.textContent = '';
+        }, 3000);
+      }, 2000); // Задержка для звуковой анимации
+    }
+
+    const levelMaps = [
+      // Уровень 1 - Крест (пересекающиеся коридоры)
+      [
+        '011111111111111111111110',
+        '000000000000000000000000',
+        '011111111110111111111110',  // Вертикальный коридор
+        '000000000000000000000000',
+        '011111111110111111111110',
+        '000000000000000000000000',
+        '000000000000000000000000',  // Горизонтальный коридор
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '011111111110111111111110',
+        '000000000000000000000000',
+        '011111111110111111111110',
+        '000000000000000000000000',
+        '011111111111111111111110'
+      ],
+      // Уровень 2 - Диагональный лабиринт (лестница)
+      [
+        '011111111111111111111110',
+        '000000000000000000000000',
+        '001111000000000000000000',  // Стена слева вверху
+        '000000000000000000000000',
+        '000000011110000000000000',
+        '000000000000000000000000',
+        '000000000000111100000000',  // Диагональ
+        '000000000000000000000000',
+        '000000000000000011110000',  // Стена справа внизу
+        '000000000000000000000000',
+        '000011110000000000000000',
+        '000000000000000000000000',
+        '000000000111100000000000',
+        '000000000000000000000000',
+        '011111111111111111111110'
+      ],
+      // Уровень 3 - Концентрические кольца
+      [
+        '011111111111111111111110',
+        '000000000000000000000000',
+        '001111111111111111111110',  // Внешнее кольцо
+        '000000000000000000000000',
+        '001110000000000000011110',
+        '000000000000000000000000',
+        '001110000001111000011110',  // Внутреннее кольцо
+        '000000000000000000000000',
+        '001110000000000000011110',
+        '000000000000000000000000',
+        '001111111111111111111110',
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '011111111111111111111110'
+      ],
+      // Уровень 4 - Зигзаг (молния)
+      [
+        '011111111111111111111110',
+        '000000000000000000000000',
+        '000000111111111111111110',  // Зигзаг вправо
+        '000000000000000000000000',
+        '000000000111111111111110',
+        '000000000000000000000000',
+        '001111000000000000000000',  // Зигзаг влево
+        '000000000000000000000000',
+        '000000011110000000000000',
+        '000000000000000000000000',
+        '000000000000111111111110',  // Зигзаг вправо
+        '000000000000000000000000',
+        '000000000000000011111110',
+        '000000000000000000000000',
+        '011111111111111111111110'
+      ],
+      // Уровень 5 - Пирамида (ступени)
+      [
+        '011111111111111111111110',
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '000011111111111111110000',  // Основание пирамиды
+        '000000000000000000000000',
+        '000000011111111111000000',
+        '000000000000000000000000',
+        '000000000011111110000000',  // Середина
+        '000000000000000000000000',
+        '000000000000111100000000',  // Вершина
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '000000000000000000000000',
+        '011111111111111111111110'
+      ],
+      // Уровень 6 - Волны (синусоида)
+      [
+        '011111111111111111111110',
+        '000000000000000000000000',
+        '000011110000000000111110',  // Волна вверх
+        '000000000000000000000000',
+        '001111111100011111111110',
+        '000000000000000000000000',
+        '011111111111111111111110',  // Волна полная (максимум)
+        '000000000000000000000000',
+        '011111111111111111111110',
+        '000000000000000000000000',
+        '001111111100011111111110',
+        '000000000000000000000000',
+        '000011110000000000111110',  // Волна вниз
+        '000000000000000000000000',
+        '011111111111111111111110'
+      ]
+    ];
+
+    let mapRows = levelMaps[0];
+    let leftSpawnTiles = [];
+    let portals = [];
+
+    function updateMapForLevel(level) {
+      // Повторяем карты циклически: используем модуль от длины базовых карт
+      const mapIndex = (level - 1) % 6;
+      mapRows = levelMaps[mapIndex];
+      leftSpawnTiles = [];
+      for (let ty = 0; ty < mapRows.length; ty++) {
+        for (let tx = 0; tx < mapRows[ty].length; tx++) {
+          if (mapRows[ty].charAt(tx) === '0' && tx <= 2) {
+            leftSpawnTiles.push({ tx, ty });
+          }
+        }
+      }
+      
+      // Создаём 3 магических портала: 2 слева, 1 справа
+      portals = [];
+      const maxX = mapRows[0].length - 1;
+      
+      // Находим проходимые тайлы на левой границе (tx = 0)
+      const walkableLeftTiles = [];
+      for (let ty = 0; ty < mapRows.length; ty++) {
+        if (isWalkableTile(0, ty)) {
+          walkableLeftTiles.push(ty);
+        }
+      }
+      
+      // Находим проходимые тайлы на правой границе (tx = maxX)
+      const walkableRightTiles = [];
+      for (let ty = 0; ty < mapRows.length; ty++) {
+        if (isWalkableTile(maxX, ty)) {
+          walkableRightTiles.push(ty);
+        }
+      }
+      
+      // Создаём 2 портала слева
+      if (walkableLeftTiles.length >= 2) {
+        // Равномерно распределяем 2 портала
+        const step = Math.floor(walkableLeftTiles.length / 3);
+        for (let i = 0; i < 2; i++) {
+          const index = Math.min(i * step + step, walkableLeftTiles.length - 1);
+          const ty = walkableLeftTiles[index];
+          portals.push({
+            tx: 0,
+            ty: ty,
+            x: 0 * tileSize + halfTile,
+            y: ty * tileSize + halfTile,
+            animationPhase: 0
+          });
+        }
+      } else if (walkableLeftTiles.length === 1) {
+        // Если только один проходимый тайл, используем его дважды
+        const ty = walkableLeftTiles[0];
+        portals.push({
+          tx: 0,
+          ty: ty,
+          x: 0 * tileSize + halfTile,
+          y: ty * tileSize + halfTile,
+          animationPhase: 0
+        });
+        portals.push({
+          tx: 0,
+          ty: ty,
+          x: 0 * tileSize + halfTile,
+          y: ty * tileSize + halfTile,
+          animationPhase: 0
+        });
+      } else {
+        // Если нет проходимых тайлов слева, ищем ближайшие
+        for (let i = 0; i < 2; i++) {
+          const targetY = Math.floor((mapRows.length / 3) * (i + 1));
+          let found = false;
+          for (let tx = 0; tx < 2 && !found; tx++) {
+            for (let ty = 0; ty < mapRows.length; ty++) {
+              if (isWalkableTile(tx, ty)) {
+                portals.push({
+                  tx: tx,
+                  ty: ty,
+                  x: tx * tileSize + halfTile,
+                  y: ty * tileSize + halfTile,
+                  animationPhase: 0
+                });
+                found = true;
+                break;
+              }
+            }
+          }
+          if (!found) {
+            const nearest = findNearestWalkableTile(0, targetY);
+            portals.push({
+              tx: nearest.tx,
+              ty: nearest.ty,
+              x: nearest.tx * tileSize + halfTile,
+              y: nearest.ty * tileSize + halfTile,
+              animationPhase: 0
+            });
+          }
+        }
+      }
+      
+      // Создаём 1 портал справа
+      if (walkableRightTiles.length > 0) {
+        const middleIndex = Math.floor(walkableRightTiles.length / 2);
+        const ty = walkableRightTiles[middleIndex];
+        portals.push({
+          tx: maxX,
+          ty: ty,
+          x: maxX * tileSize + halfTile,
+          y: ty * tileSize + halfTile,
+          animationPhase: 0
+        });
+      } else {
+        // Если нет проходимых тайлов справа, ищем ближайший
+        const targetY = Math.floor(mapRows.length / 2);
+        let found = false;
+        for (let tx = maxX; tx >= maxX - 1 && !found; tx--) {
+          for (let ty = 0; ty < mapRows.length; ty++) {
+            if (isWalkableTile(tx, ty)) {
+              portals.push({
+                tx: tx,
+                ty: ty,
+                x: tx * tileSize + halfTile,
+                y: ty * tileSize + halfTile,
+                animationPhase: 0
+              });
+              found = true;
+              break;
+            }
+          }
+        }
+        if (!found) {
+          const nearest = findNearestWalkableTile(maxX, targetY);
+          portals.push({
+            tx: nearest.tx,
+            ty: nearest.ty,
+            x: nearest.tx * tileSize + halfTile,
+            y: nearest.ty * tileSize + halfTile,
+            animationPhase: 0
+          });
+        }
+      }
+    }
+
+    updateMapForLevel(1);
+
+    function isWalkableTile(tx, ty) {
+      return mapRows[ty]?.charAt(tx) === '0';
+    }
+
+    function tileCenter(tx, ty) {
+      return {
+        x: tx * tileSize + halfTile,
+        y: ty * tileSize + halfTile
+      };
+    }
+
+    function findNearestWalkableTile(tx, ty) {
+      for (let radius = 0; radius < 4; radius++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            const nx = (tx + dx) * tileSize + tileSize / 2;
+            const ny = (ty + dy) * tileSize + tileSize / 2;
+            const tileX = Math.floor((nx - halfTile) / tileSize);
+            const tileY = Math.floor((ny - halfTile) / tileSize);
+            if (isWalkableTile(tileX, tileY)) {
+              return { tx: tileX, ty: tileY };
+            }
+          }
+        }
+      }
+      return { tx, ty };
+    }
+
+    function positionToTile(x, y) {
+      const tx = Math.round((x - halfTile) / tileSize);
+      const ty = Math.round((y - halfTile) / tileSize);
+      return findNearestWalkableTile(tx, ty);
+    }
+
+    function setEntityToTile(entity, tx, ty) {
+      entity.tileX = tx;
+      entity.tileY = ty;
+      const center = tileCenter(tx, ty);
+      entity.x = center.x;
+      entity.y = center.y;
+      entity.targetX = center.x;
+      entity.targetY = center.y;
+    }
+
+    function clampToWalkable(entity) {
+      const tile = positionToTile(entity.x, entity.y);
+      setEntityToTile(entity, tile.tx, tile.ty);
+    }
+
+    function pickRandomPortal() {
+      if (portals.length === 0) {
+        return { tx: 0, ty: Math.floor(mapRows.length / 2) };
+      }
+      return portals[Math.floor(Math.random() * portals.length)];
+    }
+
+    const enemyColors = [
+      '#c44aff', // Фиолетовый
+      '#ff44aa', // Розовый
+      '#44aaff', // Синий
+      '#ffaa44', // Оранжевый
+      '#aa44ff', // Пурпурный
+      '#44ffaa'  // Бирюзовый
+    ];
+
+    function createEnemyAtTile(tx, ty, speed, canShoot = false) {
+      const portalX = tx * tileSize + halfTile;
+      const portalY = ty * tileSize + halfTile;
+      
+      // Враг появляется прямо в портале
+      const enemy = {
+        x: portalX,
+        y: portalY,
+        targetX: portalX,
+        targetY: portalY,
+        tileX: tx,
+        tileY: ty,
+        size: tileSize,
+        speed: speed,
+        color: enemyColors[Math.floor(Math.random() * enemyColors.length)],
+        canShoot: canShoot,
+        shootTimer: canShoot ? 120 : 0 // Таймер до следующего выстрела (2 секунды при 60 FPS)
+      };
+      
+      // Стреляющие враги визуально отличаются (темнее и с красным оттенком)
+      if (canShoot) {
+        enemy.color = '#ff4444'; // Красный цвет для стреляющих врагов
+      }
+      
+      // Устанавливаем врага в правильную позицию тайла
+      setEntityToTile(enemy, tx, ty);
+      
+      return enemy;
+    }
+
+    function spawnEnemy() {
+      const portal = pickRandomPortal();
+      const baseSpeed = 1.2 + Math.random() * 0.6;
+      const difficultyBoost = 1 + Math.min(score / 120, 0.7);
+      enemySpawnCount++;
+      // Каждый 5-й враг - стреляющий
+      const canShoot = (enemySpawnCount % 5 === 0);
+      const enemy = createEnemyAtTile(portal.tx, portal.ty, (baseSpeed * difficultyBoost), canShoot);
+      enemies.push(enemy);
+    }
+
+    let audioCtx = null;
+
+    function ensureAudioContext() {
+      if (audioCtx) {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        return audioCtx;
+      }
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtx = new Ctx();
+      return audioCtx;
+    }
+
+    function playSound(kind) {
+      const ctx = ensureAudioContext();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const now = ctx.currentTime;
+      if (kind === 'shoot') {
+        osc.frequency.value = 720;
+        gain.gain.value = 0.08;
+      } else {
+        osc.frequency.value = 320;
+        gain.gain.value = 0.12;
+      }
+      osc.type = 'triangle';
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      osc.stop(now + 0.2);
+    }
+
+    function playDeathSound() {
+      const ctx = ensureAudioContext();
+      if (!ctx) return;
+      
+      // Звук смерти - нисходящая мелодия
+      const notes = [
+        { freq: 440, time: 0.0, duration: 0.2 },   // A4
+        { freq: 392, time: 0.2, duration: 0.2 },    // G4
+        { freq: 349, time: 0.4, duration: 0.3 },    // F4
+        { freq: 294, time: 0.7, duration: 0.4 }     // D4
+      ];
+
+      notes.forEach(note => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const startTime = ctx.currentTime + note.time;
+        
+        osc.frequency.value = note.freq;
+        osc.type = 'sawtooth';
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.032, startTime + 0.05);  // Уменьшено на 50% (0.064 * 0.5)
+        gain.gain.linearRampToValueAtTime(0.016, startTime + note.duration - 0.1);  // Уменьшено на 50% (0.032 * 0.5)
+        gain.gain.linearRampToValueAtTime(0, startTime + note.duration);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startTime);
+        osc.stop(startTime + note.duration);
+      });
+    }
+
+    function playVictoryMusic() {
+      const ctx = ensureAudioContext();
+      if (!ctx) return;
+      
+      // Праздничная победная мелодия - мажорная гамма вверх
+      const notes = [
+        { freq: 523.25, time: 0.0, duration: 0.15 },   // C5
+        { freq: 587.33, time: 0.15, duration: 0.15 },    // D5
+        { freq: 659.25, time: 0.3, duration: 0.15 },    // E5
+        { freq: 698.46, time: 0.45, duration: 0.15 },   // F5
+        { freq: 783.99, time: 0.6, duration: 0.2 },     // G5
+        { freq: 880.00, time: 0.8, duration: 0.2 },     // A5
+        { freq: 987.77, time: 1.0, duration: 0.25 },    // B5
+        { freq: 1046.50, time: 1.25, duration: 0.4 }    // C6 - финальная нота
+      ];
+
+      notes.forEach(note => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const startTime = ctx.currentTime + note.time;
+        
+        osc.frequency.value = note.freq;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.15, startTime + 0.02);
+        gain.gain.linearRampToValueAtTime(0.1, startTime + note.duration - 0.05);
+        gain.gain.linearRampToValueAtTime(0, startTime + note.duration);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startTime);
+        osc.stop(startTime + note.duration);
+      });
+
+      // Добавляем аккорд в конце для праздничности
+      setTimeout(() => {
+        const chordTime = ctx.currentTime + 1.7;
+        [523.25, 659.25, 783.99].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.frequency.value = freq;
+          osc.type = 'sine';
+          gain.gain.setValueAtTime(0, chordTime);
+          gain.gain.linearRampToValueAtTime(0.12, chordTime + 0.05);
+          gain.gain.linearRampToValueAtTime(0, chordTime + 0.5);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(chordTime);
+          osc.stop(chordTime + 0.5);
+        });
+      }, 1700);
+    }
+
+    function shootArrow(force = false) {
+      if ((!playing || paused) && !force) return;
+      const magnitude = Math.hypot(player.dirX, player.dirY) || 1;
+      const speed = 6;
+      console.log('[CastleArrows Logs] Shooting arrow', {
+        force,
+        dir: { x: player.dirX, y: player.dirY },
+        position: { x: player.x, y: player.y }
+      });
+      playSound('shoot');
+      arrows.push({
+        x: player.x,
+        y: player.y,
+        dx: (player.dirX / magnitude) * speed,
+        dy: (player.dirY / magnitude) * speed,
+        life: 90,
+        isEnemyArrow: false
+      });
+    }
+    
+    function shootEnemyArrow(enemy) {
+      if (paused || !playing) return;
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+      
+      // Определяем направление только по горизонтали или вертикали (как у игрока)
+      let dirX = 0;
+      let dirY = 0;
+      
+      // Выбираем направление с большим смещением
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        // Горизонтальное направление
+        dirX = dx > 0 ? 1 : -1;
+        dirY = 0;
+      } else {
+        // Вертикальное направление
+        dirX = 0;
+        dirY = dy > 0 ? 1 : -1;
+      }
+      
+      // Выравниваем стрелу по центру коридора (как у игрока)
+      // Используем центр текущего тайла врага
+      const center = tileCenter(enemy.tileX, enemy.tileY);
+      let arrowX = center.x;
+      let arrowY = center.y;
+      
+      // Если стрела летит горизонтально, выравниваем Y по центру
+      if (dirX !== 0) {
+        arrowY = center.y;
+      }
+      // Если стрела летит вертикально, выравниваем X по центру
+      if (dirY !== 0) {
+        arrowX = center.x;
+      }
+      
+      const speed = 5; // Немного медленнее, чем стрелы игрока
+      playSound('shoot');
+      arrows.push({
+        x: arrowX,
+        y: arrowY,
+        dx: dirX * speed,
+        dy: dirY * speed,
+        life: 90,
+        isEnemyArrow: true,
+        dirX: dirX,
+        dirY: dirY,
+        // Сохраняем центр тайла для выравнивания при движении
+        centerY: dirX !== 0 ? center.y : null,
+        centerX: dirY !== 0 ? center.x : null
+      });
+    }
+
+    function isAtTarget(entity) {
+      return Math.abs(entity.x - entity.targetX) < 0.1 && Math.abs(entity.y - entity.targetY) < 0.1;
+    }
+
+    function moveEntityTowardsTarget(entity) {
+      if (isAtTarget(entity)) {
+        entity.x = entity.targetX;
+        entity.y = entity.targetY;
+        return;
+      }
+      const dx = entity.targetX - entity.x;
+      const stepX = Math.sign(dx) * Math.min(Math.abs(dx), entity.speed);
+      entity.x += stepX;
+
+      const dy = entity.targetY - entity.y;
+      const stepY = Math.sign(dy) * Math.min(Math.abs(dy), entity.speed);
+      entity.y += stepY;
+    }
+
+    function rotatePlayer(dx, dy) {
+      if (dx === 0 && dy === 0) return;
+      player.dirX = dx;
+      player.dirY = dy;
+    }
+
+    function requestPlayerMove(dx, dy) {
+      if (dx === 0 && dy === 0) return;
+      const targetTileX = player.tileX + dx;
+      const targetTileY = player.tileY + dy;
+      if (!isWalkableTile(targetTileX, targetTileY)) return;
+      player.tileX = targetTileX;
+      player.tileY = targetTileY;
+      const center = tileCenter(targetTileX, targetTileY);
+      player.targetX = center.x;
+      player.targetY = center.y;
+      player.dirX = dx;
+      player.dirY = dy;
+    }
+
+    function updatePlayer() {
+      if (paused) return;
+      if (isAtTarget(player)) {
+        if (keys['ArrowUp'] || keys['KeyW']) {
+          rotatePlayer(0, -1);
+          requestPlayerMove(0, -1);
+        } else if (keys['ArrowDown'] || keys['KeyS']) {
+          rotatePlayer(0, 1);
+          requestPlayerMove(0, 1);
+        } else if (keys['ArrowLeft'] || keys['KeyA']) {
+          rotatePlayer(-1, 0);
+          requestPlayerMove(-1, 0);
+        } else if (keys['ArrowRight'] || keys['KeyD']) {
+          rotatePlayer(1, 0);
+          requestPlayerMove(1, 0);
+        }
+      }
+      moveEntityTowardsTarget(player);
+    }
+
+    function updateArrows() {
+      arrows.forEach(a => {
+        a.x += a.dx;
+        a.y += a.dy;
+        
+        // Для вражеских стрел: выравниваем по центру коридора
+        if (a.isEnemyArrow) {
+          // Если стрела летит горизонтально, выравниваем Y по центру тайла
+          if (a.dirX !== 0 && a.centerY !== null) {
+            const currentTile = Math.floor(a.y / tileSize);
+            a.y = currentTile * tileSize + halfTile;
+          }
+          // Если стрела летит вертикально, выравниваем X по центру тайла
+          if (a.dirY !== 0 && a.centerX !== null) {
+            const currentTile = Math.floor(a.x / tileSize);
+            a.x = currentTile * tileSize + halfTile;
+          }
+        }
+        
+        a.life--;
+      });
+      arrows = arrows.filter(a => a.life > 0 && a.x > -20 && a.x < canvas.width + 20 && a.y > -20 && a.y < canvas.height + 20);
+    }
+
+    function updateEnemies() {
+      enemies.forEach(enemy => {
+        // Обновляем стреляющих врагов
+        if (enemy.canShoot) {
+          enemy.shootTimer--;
+          if (enemy.shootTimer <= 0) {
+            shootEnemyArrow(enemy);
+            enemy.shootTimer = 120; // Перезарядка 2 секунды
+          }
+        }
+        
+        // Враг появляется прямо в портале и сразу двигается к игроку
+        if (isAtTarget(enemy)) {
+          enemy.x = enemy.targetX;
+          enemy.y = enemy.targetY;
+          const dx = player.tileX - enemy.tileX;
+          const dy = player.tileY - enemy.tileY;
+          const preferX = Math.abs(dx) >= Math.abs(dy);
+          const baseDirections = preferX
+            ? [
+                { dx: Math.sign(dx), dy: 0 },
+                { dx: 0, dy: Math.sign(dy) },
+                { dx: 0, dy: -Math.sign(dy) },
+                { dx: -Math.sign(dx), dy: 0 }
+              ]
+            : [
+                { dx: 0, dy: Math.sign(dy) },
+                { dx: Math.sign(dx), dy: 0 },
+                { dx: -Math.sign(dx), dy: 0 },
+                { dx: 0, dy: -Math.sign(dy) }
+              ];
+          const directions = baseDirections.filter(dir => dir.dx !== 0 || dir.dy !== 0);
+          if (directions.length === 0) {
+            directions.push({ dx: 0, dy: 1 }, { dx: 0, dy: -1 }, { dx: 1, dy: 0 }, { dx: -1, dy: 0 });
+          }
+          for (const dir of directions) {
+            const nextTileX = enemy.tileX + dir.dx;
+            const nextTileY = enemy.tileY + dir.dy;
+            if (!isWalkableTile(nextTileX, nextTileY)) continue;
+            enemy.tileX = nextTileX;
+            enemy.tileY = nextTileY;
+            const center = tileCenter(nextTileX, nextTileY);
+            enemy.targetX = center.x;
+            enemy.targetY = center.y;
+            break;
+          }
+        }
+        moveEntityTowardsTarget(enemy);
+      });
+    }
+
+    function processArrowEnemyCollisions(activeArrows, activeEnemies) {
+      let hits = 0;
+      for (let ai = activeArrows.length - 1; ai >= 0; ai--) {
+        const arrow = activeArrows[ai];
+        // Пропускаем вражеские стрелы при проверке коллизий с врагами
+        if (arrow.isEnemyArrow) continue;
+        let hitEnemyIndex = -1;
+        for (let ei = activeEnemies.length - 1; ei >= 0; ei--) {
+          const enemy = activeEnemies[ei];
+          if (Math.hypot(arrow.x - enemy.x, arrow.y - enemy.y) < (enemy.size / 2 + 5)) {
+            hitEnemyIndex = ei;
+            break;
+          }
+        }
+        if (hitEnemyIndex !== -1) {
+          activeEnemies.splice(hitEnemyIndex, 1);
+          activeArrows.splice(ai, 1);
+          hits++;
+        }
+      }
+      return hits;
+    }
+    
+    function processArrowArrowCollisions() {
+      // Проверяем коллизии между стрелами игрока и вражескими стрелами
+      const arrowsToRemove = new Set();
+      
+      // Проверяем каждую стрелу игрока с каждой вражеской стрелой
+      for (let i = arrows.length - 1; i >= 0; i--) {
+        const arrow1 = arrows[i];
+        if (arrow1.isEnemyArrow || arrowsToRemove.has(i)) continue; // Пропускаем вражеские стрелы и уже помеченные на удаление
+        
+        for (let j = arrows.length - 1; j >= 0; j--) {
+          if (i === j || arrowsToRemove.has(j)) continue; // Пропускаем ту же стрелу и уже помеченные
+          const arrow2 = arrows[j];
+          if (!arrow2.isEnemyArrow) continue; // Пропускаем стрелы игрока
+          
+          // Проверяем коллизию между стрелами (расстояние меньше 10 пикселей)
+          if (Math.hypot(arrow1.x - arrow2.x, arrow1.y - arrow2.y) < 10) {
+            // Стрелы столкнулись - обе должны исчезнуть
+            arrowsToRemove.add(i);
+            arrowsToRemove.add(j);
+            playSound('hit'); // Звук отражения
+            break; // Прерываем внутренний цикл, так как стрела игрока уже уничтожена
+          }
+        }
+      }
+      
+      // Удаляем столкнувшиеся стрелы (в обратном порядке, чтобы не сдвигать индексы)
+      if (arrowsToRemove.size > 0) {
+        const sortedIndices = Array.from(arrowsToRemove).sort((a, b) => b - a);
+        sortedIndices.forEach(index => {
+          arrows.splice(index, 1);
+        });
+      }
+      
+      return arrowsToRemove.size > 0;
+    }
+    
+    function processEnemyArrowPlayerCollisions() {
+      for (let ai = arrows.length - 1; ai >= 0; ai--) {
+        const arrow = arrows[ai];
+        // Проверяем только вражеские стрелы
+        if (!arrow.isEnemyArrow) continue;
+        
+        // Проверяем коллизию с игроком
+        if (Math.hypot(arrow.x - player.x, arrow.y - player.y) < (player.size / 2 + 5)) {
+          arrows.splice(ai, 1);
+          lives--;
+          updateLives();
+          
+          // Запускаем анимацию смерти персонажа
+          if (!playerDeathAnimation) {
+            playerDeathAnimation = {
+              x: player.x,
+              y: player.y,
+              size: player.size,
+              progress: 0,
+              maxProgress: 60 // 1 секунда при 60 FPS
+            };
+            playDeathSound();
+          }
+          
+          if (lives <= 0) {
+            playing = false;
+            paused = false;
+            pauseBtn.style.display = 'none';
+            startBtn.style.display = 'block';
+            gameOverText.textContent = 'О нет! Враг тебя догнал. Нажми «Старт».';
+          } else {
+            gameOverText.textContent = 'Ай! Осталось жизней: ' + lives;
+            setTimeout(() => {
+              if (gameOverText.textContent.includes('Ай!')) {
+                gameOverText.textContent = '';
+              }
+            }, 2000);
+          }
+        }
+      }
+    }
+
+    function updateLives() {
+      const hearts = '♥'.repeat(lives) + '♡'.repeat(Math.max(0, 3 - lives));
+      livesDisplay.textContent = 'Жизни: ' + hearts;
+    }
+
+    function handleCollisions() {
+      // Player arrow hits enemy arrow (отражение стрел)
+      processArrowArrowCollisions();
+      
+      // Arrow hits enemy (только стрелы игрока)
+      const beforeEnemies = enemies.length;
+      const beforeArrows = arrows.length;
+      const hits = processArrowEnemyCollisions(arrows, enemies);
+      if (hits > 0 || enemies.length !== beforeEnemies || arrows.length !== beforeArrows) {
+        console.log('[CastleArrows Logs] Collision result', {
+          hits,
+          enemiesBefore: beforeEnemies,
+          enemiesAfter: enemies.length,
+          arrowsBefore: beforeArrows,
+          arrowsAfter: arrows.length
+        });
+      }
+      if (hits > 0) {
+        score += hits * 5;
+        killsInLevel += hits;
+        updateLevelDisplay();
+        playSound('hit');
+        
+        if (killsInLevel >= KILLS_NEEDED_PER_LEVEL) {
+          nextLevel();
+        }
+      }
+
+      // Enemy arrow hits player (только если стрела не была отбита)
+      processEnemyArrowPlayerCollisions();
+
+      // Enemy hits player
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        if (Math.hypot(enemy.x - player.x, enemy.y - player.y) < (enemy.size / 2 + player.size / 2 - 4)) {
+          enemies.splice(i, 1);
+          lives--;
+          updateLives();
+          
+          // Запускаем анимацию смерти персонажа
+          if (!playerDeathAnimation) {
+            playerDeathAnimation = {
+              x: player.x,
+              y: player.y,
+              size: player.size,
+              progress: 0,
+              maxProgress: 60 // 1 секунда при 60 FPS
+            };
+            playDeathSound();
+          }
+          
+          if (lives <= 0) {
+            playing = false;
+            paused = false;
+            pauseBtn.style.display = 'none';
+            startBtn.style.display = 'block';
+            gameOverText.textContent = 'О нет! Враг тебя догнал. Нажми «Старт».';
+          } else {
+            gameOverText.textContent = 'Ай! Осталось жизней: ' + lives;
+            setTimeout(() => {
+              if (gameOverText.textContent.includes('Ай!')) {
+                gameOverText.textContent = '';
+              }
+            }, 2000);
+          }
+        }
+      }
+    }
+
+    function drawPlayer() {
+      // Если есть анимация смерти, рисуем её
+      if (playerDeathAnimation) {
+        ctx.save();
+        ctx.translate(playerDeathAnimation.x, playerDeathAnimation.y);
+        const progress = playerDeathAnimation.progress / playerDeathAnimation.maxProgress;
+        const alpha = 1 - progress;
+        const scale = 1 + progress * 2; // Увеличиваем размер при исчезновении
+        const rotation = progress * Math.PI * 4; // Вращение
+        
+        ctx.globalAlpha = alpha;
+        ctx.scale(scale, scale);
+        ctx.rotate(rotation);
+        
+        // Рисуем персонажа с эффектом исчезновения
+        ctx.fillStyle = '#ff4444'; // Красный цвет при смерти
+        ctx.beginPath();
+        ctx.arc(0, 0, playerDeathAnimation.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Частицы взрыва
+        for (let i = 0; i < 8; i++) {
+          const angle = (Math.PI * 2 / 8) * i + rotation;
+          const distance = progress * 30;
+          ctx.fillStyle = `rgba(255, ${100 + i * 20}, ${50 + i * 10}, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(
+            Math.cos(angle) * distance,
+            Math.sin(angle) * distance,
+            3,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        }
+        
+        ctx.restore();
+        return;
+      }
+      
+      // Обычная отрисовка персонажа
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      
+      const size = tileSize; // 60, чтобы спрайт был размером с клетку
+      
+      if (images.player) {
+        // Рисуем спрайт солдата по центру клетки
+        ctx.drawImage(
+          images.player,
+          -size / 2,
+          -size / 2,
+          size,
+          size
+        );
+      } else {
+        // Fallback: старый круг с направлением
+        ctx.fillStyle = '#5bd1ff';
+        ctx.beginPath();
+        ctx.arc(0, 0, player.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(player.dirX * 18, player.dirY * 18);
+        ctx.stroke();
+      }
+      
+      ctx.restore();
+    }
+
+    function drawArrows() {
+      arrows.forEach(a => {
+        ctx.save();
+        ctx.translate(a.x, a.y);
+        ctx.rotate(Math.atan2(a.dy, a.dx));
+        // Вражеские стрелы красные, стрелы игрока желтые
+        ctx.fillStyle = a.isEnemyArrow ? '#ff4444' : '#ffd35b';
+        ctx.fillRect(-8, -2, 16, 4);
+        ctx.restore();
+      });
+    }
+
+    function drawEnemies() {
+      enemies.forEach(e => {
+        ctx.save();
+        ctx.translate(e.x, e.y);
+
+        const size = tileSize; // 60 — враг размером с клетку
+        let spriteDrawn = false;
+
+        if (e.canShoot && images.enemyShooter) {
+          // Стреляющий враг — спрайт с ружьём
+          ctx.drawImage(
+            images.enemyShooter,
+            -size / 2,
+            -size / 2,
+            size,
+            size
+          );
+          spriteDrawn = true;
+        } else if (!e.canShoot && images.enemyMelee) {
+          // Обычный враг — спрайт без ружья
+          ctx.drawImage(
+            images.enemyMelee,
+            -size / 2,
+            -size / 2,
+            size,
+            size
+          );
+          spriteDrawn = true;
+        }
+
+        if (!spriteDrawn) {
+          // Fallback: исходный круглый враг
+          ctx.fillStyle = e.color;
+          ctx.beginPath();
+          ctx.arc(0, 0, e.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff44';
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      });
+    }
+
+    function drawMap() {
+      for (let y = 0; y < mapRows.length; y++) {
+        for (let x = 0; x < mapRows[y].length; x++) {
+          const tile = mapRows[y].charAt(x);
+          const px = x * tileSize;
+          const py = y * tileSize;
+          if (tile === '1') {
+            ctx.fillStyle = '#130a1f';
+            ctx.fillRect(px, py, tileSize, tileSize);
+            ctx.strokeStyle = '#231533';
+            ctx.strokeRect(px, py, tileSize, tileSize);
+          } else {
+            ctx.fillStyle = '#271a38';
+            ctx.fillRect(px, py, tileSize, tileSize);
+            ctx.strokeStyle = '#38234c';
+            ctx.strokeRect(px, py, tileSize, tileSize);
+          }
+        }
+      }
+    }
+
+    function drawPortals() {
+      portals.forEach(portal => {
+        portal.animationPhase = (portal.animationPhase || 0) + 0.1;
+        const pulse = Math.sin(portal.animationPhase) * 0.3 + 0.7;
+        
+        // Внешнее свечение портала
+        const gradient = ctx.createRadialGradient(
+          portal.x, portal.y, 0,
+          portal.x, portal.y, tileSize
+        );
+        gradient.addColorStop(0, `rgba(196, 74, 255, ${0.6 * pulse})`);
+        gradient.addColorStop(0.5, `rgba(196, 74, 255, ${0.3 * pulse})`);
+        gradient.addColorStop(1, 'rgba(196, 74, 255, 0)');
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(portal.x, portal.y, tileSize * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Внутренний круг портала
+        ctx.fillStyle = `rgba(196, 74, 255, ${0.4 * pulse})`;
+        ctx.beginPath();
+        ctx.arc(portal.x, portal.y, tileSize * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Центральная точка
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * pulse})`;
+        ctx.beginPath();
+        ctx.arc(portal.x, portal.y, tileSize * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function runCollisionTests() {
+      const arrowsHit = [{ x: 50, y: 50, dx: 0, dy: 0, life: 1 }];
+      const enemiesHit = [{ x: 50, y: 50, size: 26 }];
+      const hitResult = processArrowEnemyCollisions(arrowsHit, enemiesHit) === 1 &&
+        arrowsHit.length === 0 && enemiesHit.length === 0;
+
+      const arrowsMiss = [{ x: 0, y: 0, dx: 0, dy: 0, life: 1 }];
+      const enemiesMiss = [{ x: 200, y: 200, size: 26 }, { x: 300, y: 300, size: 26 }];
+      const missResult = processArrowEnemyCollisions(arrowsMiss, enemiesMiss) === 0 &&
+        enemiesMiss.length === 2 && arrowsMiss.length === 1;
+
+      const passed = hitResult && missResult;
+      console.log('[CastleArrows Tests] Arrow removes only collided enemy:', hitResult ? 'OK' : 'FAIL');
+      console.log('[CastleArrows Tests] No removal when miss:', missResult ? 'OK' : 'FAIL');
+      return passed;
+    }
+
+    function runPortalTests() {
+      let allPassed = true;
+      
+      // Тест 1: Проверка что порталов всегда 3 на каждом уровне
+      for (let level = 1; level <= MAX_LEVEL; level++) {
+        updateMapForLevel(level);
+        const portalCount = portals.length;
+        const passed = portalCount === 3;
+        allPassed = allPassed && passed;
+        console.log(`[Portal Tests] Level ${level} has exactly 3 portals:`, passed ? 'OK' : `FAIL (found ${portalCount})`);
+      }
+      
+      // Тест 2: Проверка что все порталы на проходимых тайлах
+      for (let level = 1; level <= MAX_LEVEL; level++) {
+        updateMapForLevel(level);
+        let allWalkable = true;
+        portals.forEach(portal => {
+          if (!isWalkableTile(portal.tx, portal.ty)) {
+            allWalkable = false;
+          }
+        });
+        allPassed = allPassed && allWalkable;
+        console.log(`[Portal Tests] Level ${level} portals are on walkable tiles:`, allWalkable ? 'OK' : 'FAIL');
+      }
+      
+      // Тест 3: Проверка что 2 портала слева (tx = 0) и 1 справа (tx = maxX)
+      for (let level = 1; level <= MAX_LEVEL; level++) {
+        updateMapForLevel(level);
+        const maxX = mapRows[0].length - 1;
+        const leftPortals = portals.filter(p => p.tx === 0);
+        const rightPortals = portals.filter(p => p.tx === maxX);
+        const passed = leftPortals.length === 2 && rightPortals.length === 1;
+        allPassed = allPassed && passed;
+        console.log(`[Portal Tests] Level ${level} has 2 left portals and 1 right portal:`, passed ? 'OK' : `FAIL (left: ${leftPortals.length}, right: ${rightPortals.length})`);
+      }
+      
+      // Тест 4: Проверка что враги разноцветные
+      const testEnemy1 = createEnemyAtTile(0, 1, 1.0);
+      const testEnemy2 = createEnemyAtTile(0, 2, 1.0);
+      const testEnemy3 = createEnemyAtTile(0, 3, 1.0);
+      const colors = [testEnemy1.color, testEnemy2.color, testEnemy3.color];
+      const uniqueColors = new Set(colors);
+      const hasVariety = uniqueColors.size >= 2 || colors.length >= 3; // Хотя бы 2 разных цвета при 3 врагах
+      allPassed = allPassed && hasVariety;
+      console.log('[Portal Tests] Enemies have different colors:', hasVariety ? 'OK' : 'FAIL');
+      
+      // Тест 5: Проверка что враги не появляются внутри стен
+      for (let level = 1; level <= MAX_LEVEL; level++) {
+        updateMapForLevel(level);
+        let allValid = true;
+        for (let i = 0; i < 10; i++) {
+          const portal = pickRandomPortal();
+          if (!isWalkableTile(portal.tx, portal.ty)) {
+            allValid = false;
+            break;
+          }
+        }
+        allPassed = allPassed && allValid;
+        console.log(`[Portal Tests] Level ${level} enemies spawn from walkable portals:`, allValid ? 'OK' : 'FAIL');
+      }
+      
+      // Тест 6: Проверка что враги появляются прямо в портале
+      const maxX = mapRows[0].length - 1;
+      const testEnemyLeft = createEnemyAtTile(0, 1, 1.0);
+      const testEnemyRight = createEnemyAtTile(maxX, 1, 1.0);
+      const leftPortalX = 0 * tileSize + halfTile;
+      const rightPortalX = maxX * tileSize + halfTile;
+      const leftInPortal = Math.abs(testEnemyLeft.x - leftPortalX) < 1 && Math.abs(testEnemyLeft.y - (1 * tileSize + halfTile)) < 1;
+      const rightInPortal = Math.abs(testEnemyRight.x - rightPortalX) < 1 && Math.abs(testEnemyRight.y - (1 * tileSize + halfTile)) < 1;
+      const spawnsInPortal = leftInPortal && rightInPortal;
+      allPassed = allPassed && spawnsInPortal;
+      console.log('[Portal Tests] Enemies spawn directly in portal:', spawnsInPortal ? 'OK' : 'FAIL');
+      
+      return allPassed;
+    }
+
+    let spacePressed = false;
+
+    document.addEventListener('keydown', (e) => {
+      // Обработка паузы по клавишам P или Escape
+      if ((e.code === 'KeyP' || e.code === 'Escape') && playing) {
+        paused = !paused;
+        if (paused) {
+          pauseBtn.textContent = 'Продолжить';
+        } else {
+          pauseBtn.textContent = 'Пауза';
+          if (!animationId && playing) {
+            animationId = requestAnimationFrame(gameLoop);
+          }
+        }
+        e.preventDefault();
+        return;
+      }
+      
+      if (e.code === 'Space' && !spacePressed && !paused) {
+        shootArrow();
+        spacePressed = true;
+      }
+      keys[e.code] = true;
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') {
+        spacePressed = false;
+      }
+      keys[e.code] = false;
+    });
+
+    function gameLoop() {
+      if (!playing && !playerDeathAnimation && !levelTransitionActive) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawMap();
+      drawPortals();
+      
+      // Обновляем анимацию смерти
+      if (playerDeathAnimation) {
+        playerDeathAnimation.progress++;
+        if (playerDeathAnimation.progress >= playerDeathAnimation.maxProgress) {
+          playerDeathAnimation = null;
+          // Если жизни закончились, игра останавливается
+          if (lives <= 0) {
+            playing = false;
+          }
+        }
+      }
+      
+      if (playing && !paused && !levelTransitionActive) {
+        // Игрок не двигается во время анимации смерти
+        if (!playerDeathAnimation) {
+          updatePlayer();
+        }
+        // Стрелы не двигаются во время анимации потери жизни
+        if (!playerDeathAnimation) {
+          updateArrows();
+        }
+        // Враги не двигаются во время анимации потери жизни
+        if (!playerDeathAnimation) {
+          updateEnemies();
+        }
+        // Коллизии не обрабатываются во время анимации смерти
+        if (!playerDeathAnimation) {
+          handleCollisions();
+        }
+      }
+      
+      drawEnemies();
+      drawArrows();
+      drawPlayer();
+      
+      // Рисуем индикатор паузы
+      if (paused && playing) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#dfbf6c';
+        ctx.font = 'bold 48px "Trebuchet MS", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('ПАУЗА', canvas.width / 2, canvas.height / 2);
+        ctx.restore();
+      }
+
+      if (playing && !levelTransitionActive && !paused) {
+        spawnTimer++;
+        const spawnInterval = Math.max(60, 120 - (currentLevel - 1) * 20);
+        if (spawnTimer > spawnInterval) {
+          spawnEnemy();
+          spawnTimer = 0;
+        }
+      }
+
+      if (playing || playerDeathAnimation || levelTransitionActive) {
+        animationId = requestAnimationFrame(gameLoop);
+      } else {
+        animationId = null;
+      }
+    }
+
+    startBtn.addEventListener('click', () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+      ensureAudioContext();
+      resetGame();
+      playing = true;
+      paused = false;
+      pauseBtn.style.display = 'block';
+      startBtn.style.display = 'none';
+      spawnEnemy();
+      spawnEnemy();
+      animationId = requestAnimationFrame(gameLoop);
+    });
+    
+    pauseBtn.addEventListener('click', () => {
+      paused = !paused;
+      if (paused) {
+        pauseBtn.textContent = 'Продолжить';
+      } else {
+        pauseBtn.textContent = 'Пауза';
+        // Продолжаем игровой цикл, если он остановился
+        if (!animationId && playing) {
+          animationId = requestAnimationFrame(gameLoop);
+        }
+      }
+    });
+
+    const debugAPI = {
+      resetGame: () => resetGame(),
+      shootArrow: (force = false) => shootArrow(force),
+      handleCollisions: () => handleCollisions(),
+      addEnemy: (enemy = {}) => {
+        const tile = enemy.tx !== undefined && enemy.ty !== undefined
+          ? { tx: enemy.tx, ty: enemy.ty }
+          : positionToTile(enemy.x ?? canvas.width / 2, enemy.y ?? canvas.height / 2);
+        const newEnemy = createEnemyAtTile(tile.tx, tile.ty, enemy.speed ?? 1.2);
+        newEnemy.color = enemy.color ?? '#c44aff';
+        enemies.push(newEnemy);
+      },
+      clearArrows: () => { arrows = []; },
+      setPlaying: (value) => { playing = value; },
+      setPlayerPosition: (x, y) => {
+        const tile = positionToTile(
+          typeof x === 'number' ? x : player.x,
+          typeof y === 'number' ? y : player.y
+        );
+        setEntityToTile(player, tile.tx, tile.ty);
+      },
+      getState: () => ({
+        player: { ...player },
+        arrows: arrows.map(a => ({ ...a })),
+        enemies: enemies.map(e => ({ ...e })),
+        score,
+        lives
+      })
+    };
+
+    window.__castleGameDebug = debugAPI;
+
+    function runMapVisualizationTests() {
+      console.log('\n=== ВИЗУАЛИЗАЦИЯ КАРТ ===\n');
+      
+      for (let level = 1; level <= MAX_LEVEL; level++) {
+        const map = levelMaps[level - 1];
+        const approach = mapApproaches[level - 1] || '';
+        
+        console.log(`\n--- Уровень ${level}: ${approach} ---`);
+        console.log(`Размер: ${map[0].length} x ${map.length}`);
+        
+        // Визуализация карты
+        console.log('\nВизуализация карты (1=стена, 0=коридор):');
+        console.log('┌' + '─'.repeat(map[0].length) + '┐');
+        map.forEach((row, y) => {
+          let visualRow = '│';
+          for (let x = 0; x < row.length; x++) {
+            const tile = row.charAt(x);
+            if (tile === '1') {
+              visualRow += '█';  // Стена
+            } else {
+              visualRow += ' ';  // Коридор
+            }
+          }
+          visualRow += '│';
+          console.log(visualRow);
+        });
+        console.log('└' + '─'.repeat(map[0].length) + '┘');
+        
+        // Анализ структуры
+        let wallRows = 0;
+        let corridorRows = 0;
+        let mixedRows = 0;
+        
+        map.forEach(row => {
+          const hasWalls = row.includes('1');
+          const hasCorridors = row.includes('0');
+          if (hasWalls && hasCorridors) {
+            mixedRows++;
+          } else if (hasWalls) {
+            wallRows++;
+          } else {
+            corridorRows++;
+          }
+        });
+        
+        console.log(`\nАнализ структуры:`);
+        console.log(`  - Строки со стенами: ${wallRows}`);
+        console.log(`  - Строки с коридорами: ${corridorRows}`);
+        console.log(`  - Смешанные строки: ${mixedRows}`);
+        
+        // Проверка симметрии
+        let symmetric = true;
+        for (let y = 0; y < map.length; y++) {
+          const row = map[y];
+          const reversed = row.split('').reverse().join('');
+          if (row !== reversed) {
+            symmetric = false;
+            break;
+          }
+        }
+        console.log(`  - Симметричная: ${symmetric ? 'ДА' : 'НЕТ'}`);
+        
+        // Проверка уникальности внутренних структур
+        const innerRows = map.slice(1, map.length - 1); // Без границ
+        const uniqueRows = new Set(innerRows);
+        console.log(`  - Уникальных внутренних строк: ${uniqueRows.size} из ${innerRows.length}`);
+        
+        // Проверка наличия башен/выступов
+        const topRow = map[2]; // Третья строка (после границы и пустой)
+        const bottomRow = map[map.length - 3]; // Предпоследняя строка перед границей
+        const hasLeftTower = topRow && topRow.startsWith('00111101');
+        const hasRightTower = bottomRow && bottomRow.endsWith('011111110');
+        console.log(`  - Башня слева вверху: ${hasLeftTower ? 'ДА' : 'НЕТ'}`);
+        console.log(`  - Башня справа внизу: ${hasRightTower ? 'ДА' : 'НЕТ'}`);
+      }
+      
+      console.log('\n=== КОНЕЦ ВИЗУАЛИЗАЦИИ ===\n');
+      return true;
+    }
+
+    window.runCollisionTests = runCollisionTests;
+    window.runPortalTests = runPortalTests;
+    window.runMapVisualizationTests = runMapVisualizationTests;
+    runCollisionTests();
+    runPortalTests();
+    runMapVisualizationTests();
+  </script>
+</body>
+</html>
