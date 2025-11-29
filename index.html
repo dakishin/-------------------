@@ -6,10 +6,10 @@
   <style>
     body {
       font-family: "Trebuchet MS", sans-serif;
-      background: #0e0d16;
+      background: #0d160e;
       color: #f5f2d0;
       margin: 0;
-      padding: 0;    
+      padding: 0;
       overflow: hidden;
     }
     .container {
@@ -60,7 +60,7 @@
       padding: 12px;
       border: 3px solid #6f5b3e;
       border-radius: 12px;
-      background: #1f1b2f;
+      background: #1f2f1f;
       box-shadow: 0 0 20px rgba(0,0,0,0.6);
       display: flex;
       justify-content: center;
@@ -68,7 +68,7 @@
       box-sizing: border-box;
     }
     canvas {
-      background: #100c1b;
+      background: #100c10;
       border: 2px solid #b9a06b;
       border-radius: 8px;
       image-rendering: pixelated;
@@ -121,20 +121,60 @@
 
     const images = {
       player: null,
+      playerUp: null,
+      playerDown: null,
+      playerLeft: null,
+      playerRight: null,
       enemyMelee: null,
-      enemyShooter: null
+      enemyShooter: null,
+      enemyShooterUp: null,
+      enemyShooterDown: null,
+      enemyShooterLeft: null,
+      enemyShooterRight: null
     };
 
-    const playerImage = new Image();
-    playerImage.src = 'assets/player.png';
-    playerImage.onload = () => {
-      images.player = playerImage;
-      console.log('[assets] player.png loaded');
+    // Загрузка спрайтов игрока
+    const playerUpImage = new Image();
+    playerUpImage.src = 'assets/player_up.png';
+    playerUpImage.onload = () => {
+      images.playerUp = playerUpImage;
+      console.log('[assets] player_up.png loaded');
     };
-    playerImage.onerror = (e) => {
-      console.warn('[assets] failed to load player.png', e);
+    playerUpImage.onerror = (e) => {
+      console.warn('[assets] failed to load player_up.png', e);
     };
 
+    const playerDownImage = new Image();
+    playerDownImage.src = 'assets/player_down.png';
+    playerDownImage.onload = () => {
+      images.playerDown = playerDownImage;
+      console.log('[assets] player_down.png loaded');
+    };
+    playerDownImage.onerror = (e) => {
+      console.warn('[assets] failed to load player_down.png', e);
+    };
+
+    const playerLeftImage = new Image();
+    playerLeftImage.src = 'assets/player_left.png';
+    playerLeftImage.onload = () => {
+      images.playerLeft = playerLeftImage;
+      console.log('[assets] player_left.png loaded');
+    };
+    playerLeftImage.onerror = (e) => {
+      console.warn('[assets] failed to load player_left.png', e);
+    };
+
+    const playerRightImage = new Image();
+    playerRightImage.src = 'assets/player_right.png';
+    playerRightImage.onload = () => {
+      images.playerRight = playerRightImage;
+      console.log('[assets] player_right.png loaded');
+    };
+    playerRightImage.onerror = (e) => {
+      console.warn('[assets] failed to load player_right.png', e);
+    };
+
+    // Загрузка спрайтов обычных врагов
     const enemyMeleeImage = new Image();
     enemyMeleeImage.src = 'assets/enemy_melee.png';
     enemyMeleeImage.onload = () => {
@@ -145,14 +185,45 @@
       console.warn('[assets] failed to load enemy_melee.png', e);
     };
 
-    const enemyShooterImage = new Image();
-    enemyShooterImage.src = 'assets/enemy_shooter.png';
-    enemyShooterImage.onload = () => {
-      images.enemyShooter = enemyShooterImage;
-      console.log('[assets] enemy_shooter.png loaded');
+    // Загрузка спрайтов стреляющих врагов
+    const enemyShooterUpImage = new Image();
+    enemyShooterUpImage.src = 'assets/enemy_shooter_up.png';
+    enemyShooterUpImage.onload = () => {
+      images.enemyShooterUp = enemyShooterUpImage;
+      console.log('[assets] enemy_shooter_up.png loaded');
     };
-    enemyShooterImage.onerror = (e) => {
-      console.warn('[assets] failed to load enemy_shooter.png', e);
+    enemyShooterUpImage.onerror = (e) => {
+      console.warn('[assets] failed to load enemy_shooter_up.png', e);
+    };
+
+    const enemyShooterDownImage = new Image();
+    enemyShooterDownImage.src = 'assets/enemy_shooter_down.png';
+    enemyShooterDownImage.onload = () => {
+      images.enemyShooterDown = enemyShooterDownImage;
+      console.log('[assets] enemy_shooter_down.png loaded');
+    };
+    enemyShooterDownImage.onerror = (e) => {
+      console.warn('[assets] failed to load enemy_shooter_down.png', e);
+    };
+
+    const enemyShooterLeftImage = new Image();
+    enemyShooterLeftImage.src = 'assets/enemy_shooter_left.png';
+    enemyShooterLeftImage.onload = () => {
+      images.enemyShooterLeft = enemyShooterLeftImage;
+      console.log('[assets] enemy_shooter_left.png loaded');
+    };
+    enemyShooterLeftImage.onerror = (e) => {
+      console.warn('[assets] failed to load enemy_shooter_left.png', e);
+    };
+
+    const enemyShooterRightImage = new Image();
+    enemyShooterRightImage.src = 'assets/enemy_shooter_right.png';
+    enemyShooterRightImage.onload = () => {
+      images.enemyShooterRight = enemyShooterRightImage;
+      console.log('[assets] enemy_shooter_right.png loaded');
+    };
+    enemyShooterRightImage.onerror = (e) => {
+      console.warn('[assets] failed to load enemy_shooter_right.png', e);
     };
 
     const livesDisplay = document.getElementById('lives');
@@ -659,7 +730,9 @@
         speed: speed,
         color: enemyColors[Math.floor(Math.random() * enemyColors.length)],
         canShoot: canShoot,
-        shootTimer: canShoot ? 120 : 0 // Таймер до следующего выстрела (2 секунды при 60 FPS)
+        shootTimer: canShoot ? 120 : 0, // Таймер до следующего выстрела (2 секунды при 60 FPS)
+        dirX: 1, // Направление движения по X
+        dirY: 0  // Направление движения по Y
       };
       
       // Стреляющие враги визуально отличаются (темнее и с красным оттенком)
@@ -1000,6 +1073,8 @@
             if (!isWalkableTile(nextTileX, nextTileY)) continue;
             enemy.tileX = nextTileX;
             enemy.tileY = nextTileY;
+            enemy.dirX = dir.dx; // Обновляем направление движения
+            enemy.dirY = dir.dy;
             const center = tileCenter(nextTileX, nextTileY);
             enemy.targetX = center.x;
             enemy.targetY = center.y;
@@ -1231,10 +1306,22 @@
       
       const size = tileSize; // 60, чтобы спрайт был размером с клетку
       
-      if (images.player) {
-        // Рисуем спрайт солдата по центру клетки
+      // Выбираем спрайт по направлению движения
+      let playerSprite = null;
+      if (player.dirX === 1 && player.dirY === 0) {
+        playerSprite = images.playerRight;
+      } else if (player.dirX === -1 && player.dirY === 0) {
+        playerSprite = images.playerLeft;
+      } else if (player.dirX === 0 && player.dirY === -1) {
+        playerSprite = images.playerUp;
+      } else if (player.dirX === 0 && player.dirY === 1) {
+        playerSprite = images.playerDown;
+      }
+      
+      if (playerSprite) {
+        // Рисуем directional-спрайт солдата по центру клетки
         ctx.drawImage(
-          images.player,
+          playerSprite,
           -size / 2,
           -size / 2,
           size,
@@ -1277,16 +1364,29 @@
         const size = tileSize; // 60 — враг размером с клетку
         let spriteDrawn = false;
 
-        if (e.canShoot && images.enemyShooter) {
-          // Стреляющий враг — спрайт с ружьём
-          ctx.drawImage(
-            images.enemyShooter,
-            -size / 2,
-            -size / 2,
-            size,
-            size
-          );
-          spriteDrawn = true;
+        if (e.canShoot) {
+          // Стреляющий враг — выбираем directional-спрайт по направлению движения
+          let shooterSprite = null;
+          if (e.dirX === 1 && e.dirY === 0) {
+            shooterSprite = images.enemyShooterRight;
+          } else if (e.dirX === -1 && e.dirY === 0) {
+            shooterSprite = images.enemyShooterLeft;
+          } else if (e.dirX === 0 && e.dirY === -1) {
+            shooterSprite = images.enemyShooterUp;
+          } else if (e.dirX === 0 && e.dirY === 1) {
+            shooterSprite = images.enemyShooterDown;
+          }
+          
+          if (shooterSprite) {
+            ctx.drawImage(
+              shooterSprite,
+              -size / 2,
+              -size / 2,
+              size,
+              size
+            );
+            spriteDrawn = true;
+          }
         } else if (!e.canShoot && images.enemyMelee) {
           // Обычный враг — спрайт без ружья
           ctx.drawImage(
@@ -1320,14 +1420,14 @@
           const px = x * tileSize;
           const py = y * tileSize;
           if (tile === '1') {
-            ctx.fillStyle = '#130a1f';
+            ctx.fillStyle = '#2a2a2a';
             ctx.fillRect(px, py, tileSize, tileSize);
-            ctx.strokeStyle = '#231533';
+            ctx.strokeStyle = '#3a3a3a';
             ctx.strokeRect(px, py, tileSize, tileSize);
           } else {
-            ctx.fillStyle = '#271a38';
+            ctx.fillStyle = '#1a381a';
             ctx.fillRect(px, py, tileSize, tileSize);
-            ctx.strokeStyle = '#38234c';
+            ctx.strokeStyle = '#234c23';
             ctx.strokeRect(px, py, tileSize, tileSize);
           }
         }
